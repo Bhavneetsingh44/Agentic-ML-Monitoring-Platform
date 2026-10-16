@@ -1,143 +1,155 @@
 # Agentic ML Monitoring & Decision Intelligence Platform
 
-An end-to-end machine learning platform for predicting bank customer churn and evolving the model from a notebook-style experiment into a production-oriented ML system with experiment tracking, API-based inference, explainability, monitoring, and an agentic decision layer.
+An end-to-end **bank customer churn prediction and monitoring prototype** combining machine learning, experiment tracking, explainability, data-drift detection, LLM-assisted investigation, and API access.
 
-## Project Goal
+> **Status:** Working locally. Docker, AWS deployment, CI/CD, and production hardening are still in progress. Monitoring examples currently use **deliberately simulated drift**, not live bank traffic.
 
-The project predicts customers at risk of churn and turns model output into a usable decision-intelligence workflow. It is designed to demonstrate the full ML lifecycle rather than stopping at model training.
+## What works today
 
-## Current ML Results
+- **Churn model:** scikit-learn Gradient Boosting with feature engineering, categorical encoding and numeric scaling.
+- **Experiment tracking:** MLflow for experiments and loading the trained pipeline.
+- **Prediction service:** FastAPI `POST /predict` with model explanations; `GET /monitor/drift` for a monitoring demonstration.
+- **Data drift:** Evidently detects changes between reference and current feature distributions.
+- **Numeric investigation:** Pandas compares mean feature values and relative changes.
+- **Explainability:** SHAP ranks influential model features across a sampled set of customers.
+- **Agentic workflow:** LangGraph routes alerts, Groq LLM selects up to **two distinct, read-only investigation tools**, and a final LLM step combines the collected evidence.
+- **Investigation API:** `POST /agent/investigate` returns status, drifting features, completed tools, SHAP features, investigation evidence, and a narrative report.
 
-| Metric | Validation Result |
+## Model results
+
+| Metric | Validation result |
 |---|---:|
 | ROC-AUC | 0.8502 |
 | Accuracy | 0.8485 |
 | Precision | 0.6313 |
 | Recall | 0.6143 |
-| F1 Score | 0.6227 |
-| Decision Threshold | 0.30 |
+| F1 | 0.6227 |
+| Decision threshold | 0.30 |
 
-The 0.30 threshold was selected from tested thresholds (0.30, 0.40 and 0.50) using validation F1. Lowering the threshold improved churn recall compared with the default 0.50 threshold.
+The reported precision, recall, accuracy and F1 correspond to the selected 0.30 threshold. Lowering the threshold improved recall relative to 0.50; metrics should be interpreted with the evaluation split and threshold.
 
-## Current Architecture
+## Architecture
 
 ```text
-Raw Customer Data
+Bank Customer Data
        |
        v
-Feature Engineering
+Feature Engineering + sklearn Pipeline
        |
        v
-Train / Validation / Test Split
+Gradient Boosting + MLflow
+       |
+       +-------------------> FastAPI /predict
+       |
+Reference vs Current Data
        |
        v
-ColumnTransformer
-  |              |
-OneHotEncoder  StandardScaler
+Evidently Drift Detection
        |
        v
-Gradient Boosting Classifier
+LangGraph Alert Routing
        |
        v
-MLflow Experiment Tracking
+Groq LLM Tool Selection
+       |
+       +--> Pandas Distribution Comparison
+       |
+       +--> SHAP Feature Importance
        |
        v
-FastAPI Prediction API
+Groq LLM Evidence Summary
        |
        v
-Decision Intelligence / Monitoring (in progress)
+FastAPI POST /agent/investigate
 ```
 
-## Features Engineered
+The LLM can choose to stop after one investigation or request a second distinct investigation. The workflow caps investigation tool executions at two. It **does not automatically retrain or deploy models**.
 
-- `BalanceToSalary`
-- `ProductsPerYear`
-- `EngagementScore`
-- `AgeWhenJoined`
+## Verified simulated-drift example
 
-Categorical variables (`Geography`, `Gender`) are encoded with `OneHotEncoder`, while numerical variables are standardized with `StandardScaler` inside a scikit-learn `ColumnTransformer` and `Pipeline`.
+In the local demonstration, `Age` is increased by 15 and `Balance` is multiplied by 1.5 in the current-data sample. An observed successful API response reported:
 
-## Technology Stack
+| Drifted feature | Reference mean | Current mean | Relative change |
+|---|---:|---:|---:|
+| Age | 38.94 | 53.86 | +38.32% |
+| Balance | 76,800.04 | 112,843.95 | +46.93% |
+| ProductsPerYear | ~0.04 | ~0.03 | -29.71% |
+| AgeWhenJoined | 33.93 | 48.84 | +43.98% |
 
-| Area | Technologies |
-|---|---|
-| Language | Python |
-| Data | Pandas |
-| Machine Learning | scikit-learn, Gradient Boosting |
-| Preprocessing | ColumnTransformer, OneHotEncoder, StandardScaler |
-| Experiment Tracking | MLflow |
-| API | FastAPI, Pydantic, Uvicorn |
-| Version Control | Git, GitHub |
-| Planned | SHAP, monitoring, agentic AI, Docker, AWS, CI/CD |
+The agent completed both `investigate_distribution_drift` and `investigate_feature_importance` in a single run. Its top SHAP-ranked features were `ProductsPerYear`, `Age`, `IsActiveMember`, `Balance`, and `NumOfProducts` (with preprocessing prefixes in raw output).
 
-## Project Structure
+**Caution:** Drift alone does not establish reduced accuracy or unfair outcomes. Mean changes are diagnostic summaries, not full distribution tests. LLM narrative claims should be checked against the numeric evidence.
+
+## Project layout
 
 ```text
-Agentic-ML-Monitoring-Platform/
+src/
+├── agents/
+│   ├── agent_service.py
+│   ├── investigation_tools.py
+│   ├── llm_reasoner.py
+│   └── monitoring_agent.py
+├── api/
+│   └── app.py
 ├── data/
-│   └── raw/
-│       └── European_Bank.csv
-├── src/
-│   ├── api/
-│   │   └── app.py
-│   ├── data/
-│   │   ├── feature_engineering.py
-│   │   └── preprocessing.py
-│   ├── models/
-│   │   ├── train.py
-│   │   └── predict.py
-│   └── tracking/
-│       └── experiment.py
-├── main.py
-├── test_model.py
-├── .gitignore
-└── README.md
+│   ├── feature_engineering.py
+│   └── preprocessing.py
+├── explainability/
+│   └── shap_explainer.py
+├── models/
+│   ├── predict.py
+│   └── train.py
+├── monitoring/
+│   └── drift.py
+└── tracking/
+    └── experiment.py
 ```
 
-## ML Workflow
+Additional local scripts include `test_agent.py`, `test_drift.py`, `test_shap.py`, `test_model.py`, and `main.py`.
 
-1. Load bank customer data.
-2. Engineer churn-related behavioral features.
-3. Split the data into training, validation and test sets using stratification.
-4. Build preprocessing and model steps as a scikit-learn pipeline to reduce data-leakage risk.
-5. Train a Gradient Boosting classifier.
-6. Evaluate probabilities using ROC-AUC, precision, recall and F1.
-7. Compare decision thresholds on the validation set and select 0.30 based on validation F1 among the tested thresholds.
-8. Track experiments and the trained pipeline with MLflow.
-9. Load the tracked model for inference.
-10. Expose churn predictions through FastAPI.
+## Technology stack
 
-## API
+| Area | Tools |
+|---|---|
+| ML and preprocessing | Python, Pandas, scikit-learn |
+| Tracking | MLflow |
+| Explainability | SHAP |
+| Drift detection | Evidently |
+| Agent orchestration | LangGraph, LangChain tools |
+| LLM | Groq API (tested with `openai/gpt-oss-20b`) |
+| Serving | FastAPI, Pydantic, Uvicorn |
+| Version control | Git, GitHub |
 
-The FastAPI service accepts customer information and returns the predicted churn probability and threshold-based churn decision.
+## Running locally
 
-Run locally with:
+1. Install the project's Python dependencies in a virtual environment.
+2. Set `GROQ_API_KEY` in a local `.env` file. **Never commit this file.**
+3. Ensure the expected dataset and MLflow model artifacts are available locally; model loading currently depends on local MLflow storage.
+4. From the repository root, start the API:
 
 ```bash
 python -m uvicorn src.api.app:app --reload
 ```
 
-Then open the interactive API documentation at `/docs` on the local server.
+5. Open `http://127.0.0.1:8000/docs` and execute `POST /agent/investigate` to run the **simulated drift** demonstration.
 
-## Development Roadmap
+This is not yet a one-command fresh-clone setup: dependency pinning, reproducible model packaging, and deployment configuration remain to be completed.
 
-- [x] Feature engineering
-- [x] Train / validation / test workflow
-- [x] Scikit-learn preprocessing pipeline
-- [x] Gradient Boosting churn model
-- [x] Threshold evaluation
-- [x] MLflow experiment tracking
-- [x] FastAPI inference layer
-- [ ] SHAP explainability
-- [ ] Model/data drift monitoring
-- [ ] Agentic incident analysis and decision support
-- [ ] Docker containerization
+## Roadmap
+
+- [x] Feature engineering and leakage-aware preprocessing
+- [x] Gradient Boosting churn prediction and threshold evaluation
+- [x] MLflow experiment tracking and model loading
+- [x] FastAPI prediction endpoint
+- [x] SHAP explanations
+- [x] Evidently drift detection and feature mean comparisons
+- [x] Groq integration and LangGraph conditional routing
+- [x] Bounded multi-tool agent investigation
+- [x] FastAPI `POST /agent/investigate` tested successfully
+- [ ] Production-quality drift evaluation, tests, logging and response schemas
+- [ ] Docker containerization and reproducible model artifacts
 - [ ] AWS deployment
 - [ ] CI/CD with GitHub Actions
-
-## Why This Project
-
-A model is only one part of a real ML system. This project is being built to demonstrate how a prediction model can be tracked, served, explained, monitored and eventually connected to an agentic decision workflow.
 
 ## Author
 
