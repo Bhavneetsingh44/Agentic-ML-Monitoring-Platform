@@ -1,8 +1,20 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import pandas as pd
+from src.data.feature_engineering import create_features
+from src.explainability.shap_explainer import explain_prediction
+from fastapi import HTTPException
+
+from src.agents.agent_service import run_monitoring_agent
+from src.data.feature_engineering import create_features
 
 from src.models.predict import load_churn_model
+
+from src.monitoring.drift import (
+    detect_data_drift,
+    create_drift_alert
+)
+from fastapi import HTTPException
 
 app = FastAPI()
 
@@ -34,35 +46,101 @@ def home():
 @app.post("/predict")
 def predict(customer: Customer):
 
-    # Convert incoming customer data to DataFrame
+    # Convert API input into DataFrame
     data = pd.DataFrame([customer.model_dump()])
 
-    # Create the same engineered features used during training
-    data["BalanceToSalary"] = (
-        data["Balance"] / (data["EstimatedSalary"] + 1)
-    )
+    # Create engineered features
+    data = create_features(data)
 
-    data["ProductsPerYear"] = (
-        data["NumOfProducts"] / data["Age"]
-    )
-
-    data["EngagementScore"] = (
-        data["IsActiveMember"] + data["HasCrCard"]
-    )
-
-    data["AgeWhenJoined"] = (
-        data["Age"] - data["Tenure"]
-    )
-
-    # Get churn probability
+    # Predict churn probability
     probability = model.predict_proba(data)[:, 1][0]
 
     # Apply our selected threshold
     prediction = int(probability >= THRESHOLD)
 
+    # Explain prediction using SHAP
+    explanation = explain_prediction(model, data)
+
+    # Get top 5 most influential features
+    top_factors = []
+
+    for _, row in explanation.head(5).iterrows():
+        top_factors.append({
+            "feature": row["feature"],
+            "shap_value": round(float(row["shap_value"]), 4),
+            "direction": (
+                "increases_churn"
+                if row["shap_value"] > 0
+                else "decreases_churn"
+            )
+        })
+
     return {
         "churn_probability": round(float(probability), 4),
         "prediction": prediction,
         "churn": bool(prediction),
-        "threshold": THRESHOLD
+        "threshold": THRESHOLD,
+        "top_factors": top_factors
     }
+
+@app.get("/monitor/drift")
+def monitor_drift():
+
+    df = pd.read_csv("data/raw/European_Bank.csv")
+    df = df.drop(columns=["CustomerId", "Surname", "Exited"])
+
+    reference_raw = df.iloc[:8000].copy()
+    current_raw = df.iloc[8000:].copy()
+
+
+
+    reference_data = create_features(reference_raw)
+    current_data = create_features(current_raw)
+
+    report = detect_data_drift(
+        reference_data,
+        current_data
+    )
+
+    alert = create_drift_alert(report)
+
+    return alert
+
+@app.post("/agent/investigate")
+def investigate_agent():
+
+    try:
+        # Load sample dataset
+        df = pd.read_csv("data/raw/European_Bank.csv")
+
+        # Remove identifiers and target
+        df = df.drop(
+            columns=["CustomerId", "Surname", "Exited"]
+        )
+
+        # Historical reference data
+        reference_raw = df.iloc[:8000].copy()
+
+        # Current data (simulated drift)
+        current_raw = df.iloc[8000:].copy()
+
+        current_raw["Age"] += 15
+        current_raw["Balance"] *= 1.5
+
+        # Feature engineering
+        reference_data = create_features(reference_raw)
+        current_data = create_features(current_raw)
+
+        # Run the agent
+        result = run_monitoring_agent(
+            reference_data=reference_data,
+            current_data=current_data,
+        )
+
+        return result
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Agent investigation failed. Check server logs."
+        ) from error
