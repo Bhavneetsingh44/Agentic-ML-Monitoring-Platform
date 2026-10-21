@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 import pandas as pd
 from src.data.feature_engineering import create_features
 from src.explainability.shap_explainer import explain_prediction
@@ -25,17 +26,17 @@ THRESHOLD = 0.3
 
 
 class Customer(BaseModel):
-    Year: int
-    CreditScore: int
-    Geography: str
-    Gender: str
-    Age: int
-    Tenure: int
-    Balance: float
-    NumOfProducts: int
-    HasCrCard: int
-    IsActiveMember: int
-    EstimatedSalary: float
+    Year: int = Field(ge=1900, le=2100)
+    CreditScore: int = Field(ge=300, le=850)
+    Geography: Literal["France", "Germany", "Spain"]
+    Gender: Literal["Male", "Female"]
+    Age: int = Field(ge=18, le=100)
+    Tenure: int = Field(ge=0, le=50)
+    Balance: float = Field(ge=0)
+    NumOfProducts: int = Field(ge=1, le=4)
+    HasCrCard: Literal[0, 1]
+    IsActiveMember: Literal[0, 1]
+    EstimatedSalary: float = Field(ge=0)
 
 
 @app.get("/")
@@ -49,8 +50,21 @@ def predict(customer: Customer):
     # Convert API input into DataFrame
     data = pd.DataFrame([customer.model_dump()])
 
-    # Create engineered features
     data = create_features(data)
+
+    print("\n===== PREDICTION DEBUG =====", flush=True)
+    print("Columns:", data.columns.tolist(), flush=True)
+    print("Values:", data.to_dict(orient="records"), flush=True)
+    print("Missing:", data.isna().sum().to_dict(), flush=True)
+
+    if data.isna().any().any():
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid input: feature engineering produced missing values."
+        )
+
+    print("Input data:", data.to_dict(orient="records"), flush=True)
+    print("Missing values:", data.isna().sum().to_dict(), flush=True)
 
     # Predict churn probability
     probability = model.predict_proba(data)[:, 1][0]

@@ -1,9 +1,24 @@
-import mlflow.sklearn
+
+import os
+from pathlib import Path
+
+import skops.io as sio
 
 
 def load_churn_model():
-    model_uri = "models:/m-c5a476234c37498c93061a724ed1db5f"
+    project_root = Path(__file__).resolve().parents[2]
 
-    model = mlflow.sklearn.load_model(model_uri)
+    model_path = os.getenv(
+        "MODEL_PATH",
+        str(project_root / "deployment" / "model" / "model.skops"),
+    )
 
-    return model
+    trusted_types = [
+        "_loss.CyHalfBinomialLoss",
+        "sklearn.tree._tree.Tree",
+    ]
+
+    return sio.load(
+        model_path,
+        trusted=trusted_types,
+    )

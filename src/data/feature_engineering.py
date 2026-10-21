@@ -1,27 +1,26 @@
 import pandas as pd
+import numpy as np
 
 
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create engineered features for the bank churn model.
-    """
-
-    # Work on a copy so the original dataframe is not modified
     df = df.copy()
 
     # Balance relative to salary
-    df["BalanceToSalary"] = df["Balance"] / (df["EstimatedSalary"] + 1)
-
-    # Number of products relative to customer age
-    df["ProductsPerYear"] = df["NumOfProducts"] / df["Age"]
-
-    # Simple customer engagement indicator
-    df["EngagementScore"] = (
-        df["IsActiveMember"] +
-        df["HasCrCard"]
+    df["BalanceToSalary"] = (
+        df["Balance"] / (df["EstimatedSalary"] + 1)
     )
 
-    # Approximate age when customer joined the bank
+    # Products relative to age
+    df["ProductsPerYear"] = (
+        df["NumOfProducts"] / df["Age"].replace(0, np.nan)
+    )
+
+    # Customer engagement
+    df["EngagementScore"] = (
+        df["IsActiveMember"] + df["HasCrCard"]
+    )
+
+    # Age when customer joined
     df["AgeWhenJoined"] = df["Age"] - df["Tenure"]
 
     return df

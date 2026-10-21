@@ -1,0 +1,12 @@
+.git
+.env
+.venv/
+venv/
+.idea/
+__pycache__/
+*.pyc
+
+mlflow.db
+mlruns/
+*.html
+*.log

@@ -1,7 +1,14 @@
 pandas
-scikit-learn
+numpy
+scikit-learn==1.8.0
 mlflow
 fastapi
 pydantic
 uvicorn
 skops
+shap
+evidently
+langgraph
+langchain-core
+langchain-groq
+python-dotenv
