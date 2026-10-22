@@ -1,3 +1,4 @@
+
 import pandas as pd
 from evidently import Report
 from evidently.presets import DataDriftPreset
@@ -5,25 +6,21 @@ from evidently.presets import DataDriftPreset
 
 def detect_data_drift(
     reference_data: pd.DataFrame,
-    current_data: pd.DataFrame
+    current_data: pd.DataFrame,
 ):
-    report = Report([
-        DataDriftPreset()
-    ])
-
-    result = report.run(
+    report = Report([DataDriftPreset()])
+    return report.run(
         reference_data=reference_data,
-        current_data=current_data
+        current_data=current_data,
     )
 
-    return result
 
-def get_drifted_features(report):
+def get_drifted_features(report) -> list[str]:
+    """Extract feature-level drift flags from an Evidently report."""
     result_dict = report.dump_dict()
     drifted_features = []
 
-    for metric in result_dict["metric_results"].values():
-
+    for metric in result_dict.get("metric_results", {}).values():
         params = (
             metric.get("metric_value_location", {})
             .get("metric", {})
@@ -38,19 +35,20 @@ def get_drifted_features(report):
         threshold = params.get("threshold")
 
         if (
-            feature is not None
-            and score is not None
-            and threshold is not None
-            and score > threshold
+            isinstance(feature, str)
+            and isinstance(score, (int, float))
+            and isinstance(threshold, (int, float))
+            and score < threshold
         ):
             drifted_features.append(feature)
 
-    return drifted_features
+    return sorted(set(drifted_features))
 
-def create_drift_alert(report):
+
+def create_drift_alert(report) -> dict:
     drifted_features = get_drifted_features(report)
 
-    alert = {
+    return {
         "status": "WARNING" if drifted_features else "OK",
         "drifted_count": len(drifted_features),
         "drifted_features": drifted_features,
@@ -58,7 +56,5 @@ def create_drift_alert(report):
             "Investigate feature drift"
             if drifted_features
             else "No investigation required"
-        )
+        ),
     }
-
-    return alert
